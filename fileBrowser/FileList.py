@@ -49,6 +49,16 @@ class FileList():
                 subDir.searchDir(current_depth_relative + 1, max_depth)
                 self.tree.update(subDir.tree)
 
+    def searchParentDir(self,current_depth_relative=0,max_depth=2):
+        if current_depth_relative <= max_depth:
+            # print(f"Searching at depth {current_depth_relative}: {self.path}")
+            newpath = os.path.abspath(os.path.join(self.path, ".."))
+            parentDir = FileList(newpath)
+            entry_list = parentDir.getEntryList()
+            self.tree[newpath] = entry_list
+
+            parentDir.searchParentDir(current_depth_relative + 1,max_depth)
+            self.tree.update(parentDir.tree)
         
 
     
