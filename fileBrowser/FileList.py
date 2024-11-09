@@ -27,10 +27,6 @@ class FileList():
         else:
             return "Dir "
 
-    # create a label to assign to ListItem 
-    def getLabel(self, entry: DirEntry) -> str:
-        return self.getEntryType(entry) + entry.name
-    
     def getDirList(self):
         entryList = self.getEntryList()
         return [entry for entry in entryList if entry.is_dir()]

@@ -1,72 +1,90 @@
 import os
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, ListItem, ListView, Label
-from textual.widget import Widget
-from textual.reactive import reactive
+import sys
+import termios
+import tty
 from FileList import FileList
 
-# FIX: cant get the action_go_back working
-# the path change, but I cant come up with a way 
-# to populate the ListView when it re-composed
-# NOTE: Tried async and await, but no impact
+# ANSI escape codes for terminal control
+CLEAR_SCREEN = "\033[2J"
+RESET_CURSOR = "\033[H"
+HIGHLIGHT = "\033[7m"
+RESET = "\033[0m"
 
-# a big widget that is kinda a custom ListView
-# adding and refreshing ListView widget when path change
-class FileViewer(Widget):
-    # reactive path
-    # recompose when this is changed
-    #   it is changed when we go up and down the depth
-    # so it re-render the list of file
-    path = reactive(os.getcwd(), recompose= True)
-    
-    # NOTE:ignore async and await if you want, it just my attempt to fix
-    
-    # on_ is for actions to run at a certain event
+# Function to read a single character input
+def getInput():
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return ch
 
-    # mount is when before the app UI render and run, usually to set up bindings, databases, etc
-    async def on_mount(self) -> None:
-        self.viewer = self.query_one("#viewer", ListView)
-        await self.refreshItems()
+# Function to display files in a TUI
+def display_files(current_path, fileList, selected_index):
+    sys.stdout.write(CLEAR_SCREEN + RESET_CURSOR)
+    print(f"Current Path: {current_path}")
 
-    # compose is just render
-    def compose(self) -> ComposeResult:
-        # id is for query_one, which is just a function that is used to refer to a widget,
-        #                       changing widget stuff such as FileViewer.path
-        yield ListView(id="viewer")
+    for i, entry in enumerate(fileList):
+        label = entry['label'] if isinstance(entry, dict) else f"{'Dir ' if entry.is_dir() else 'File'} {entry.name}"
+        if i == selected_index:
+            sys.stdout.write(f"{HIGHLIGHT}> {label}{RESET}\n")
+        else:
+            sys.stdout.write(f"  {label}\n")
 
-    # a function to add items to the ListView widget,
-    # rendering folders and files
-    # TODO: add .. folder
-    async def refreshItems(self) -> None:
-        fileList = FileList(self.path)
-        entryList = fileList.getEntryList()
+    sys.stdout.flush()
 
-        self.viewer.clear()
+# Main TUI function
+def tui_file_browser():
+    current_path = os.getcwd()
+    selected_index = 0
 
-        for entry in entryList:
-            label = fileList.getLabel(entry)
-            item = ListItem(Label(label))
-            self.viewer.append(item)
+    while True:
+        fileListOBJ = FileList(current_path)
+        entries = fileListOBJ.getEntryList()
+        
+        # Add custom dict entry for '..' for parent directory navigation
+        fileList = [{'name': '..', 'label': 'Dir  .. (Go up)'}] + entries
 
-class fileBrowser(App):
-    BINDINGS = [("backspace", "go_back", "Go Back"),
-                ("q", "exit", "Exit")]
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield FileViewer()
-        yield Footer()
+        display_files(current_path, fileList, selected_index)
 
-    # go back is just to get the parent path and change the path
-    # textual suppose to automatically rerender because viewer.path is using reactive, as refer above
-    def action_go_back(self) -> None:
-        viewer = self.query_one(FileViewer)
-        parrent_path = os.path.dirname(viewer.path)
-        if viewer.path != parrent_path: #check if root
-            viewer.path = parrent_path
+        key = getInput()
 
-    def action_exit(self) -> None:
-        self.exit()
-    
+        # Handle arrow keys
+        if key == '\x1b':  # ESC sequence for arrow keys
+            getInput()  # Skip '['
+            arrow_key = getInput()
+            if arrow_key == 'A':  # Up arrow
+                selected_index = max(0, selected_index - 1)
+            elif arrow_key == 'B':  # Down arrow
+                selected_index = min(len(fileList) - 1, selected_index + 1)
+
+        # Enter key to open directory or file
+        elif key == '\r':
+            selected_entry = fileList[selected_index]
+
+            if isinstance(selected_entry, dict) and selected_entry['name'] == "..":
+                # Navigate to the parent directory
+                current_path = os.path.dirname(current_path)
+                selected_index = 0
+            elif selected_entry.is_dir():
+                # Navigate into the selected directory
+                current_path = os.path.join(current_path, selected_entry.name)
+                selected_index = 0
+            else:
+                sys.stdout.write(CLEAR_SCREEN + RESET_CURSOR)
+                print(f"Selected File: {os.path.join(current_path, selected_entry.name)}")
+                break
+
+        # Quit the TUI with 'q'
+        elif key == 'q':
+            sys.stdout.write(CLEAR_SCREEN + RESET_CURSOR)
+            # help user cd to the path they are at in the fileBrowser
+            print("to go to the target path, run this")
+            print(f"cd {current_path}")
+            break
+
 if __name__ == "__main__":
-    app = fileBrowser()
-    app.run()
+    tui_file_browser()
+
